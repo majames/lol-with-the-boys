@@ -1,5 +1,7 @@
 import axios from 'axios';
 import fs from 'fs';
+import flatten from 'lodash.flatten';
+import values from 'lodash.values';
 
 const apiKey = fs.readFileSync('./.api-key').toString();
 
@@ -109,7 +111,7 @@ const getMatchesForSummoner = async (theBoysWithAccountDets: BoyWithAccountDets[
     return responses
         .map(resp => resp.data.matches)
         .map(matches => matches.map((match: Match) => ({ gameId: match.gameId })))
-        .map((matches, i) => ({ ...theBoysWithAccountDets[i], matches: matches.slice(0, 3) }));
+        .map((matches, i) => ({ ...theBoysWithAccountDets[i], matches: matches }));
 };
 
 const getDetailsForMatchesAux = async (aBoyWithMatches: BoyWithMatches) => {
@@ -147,25 +149,29 @@ const getDetailsForMatches = async (theBoysWithMatches: BoyWithMatches[]) => {
     });
 };
 
-const flattenIntoCsv = (theBoysWithDetsMatches: BoyWithDetsMatches[]) => {
-    return theBoysWithDetsMatches.map(aBoy => {
-        return aBoy.matches.map(matchWithDets => ({
-            accountId: aBoy.accountId, 
-            name: aBoy.name,
-            summonerName: aBoy.summonerName, 
+const flattenIntoRows = (theBoysWithDetsMatches: BoyWithMatches[]) => {
+    return flatten(
+        theBoysWithDetsMatches.map(aBoy => {
+            return aBoy.matches.map(matchWithDets => ({
+                accountId: aBoy.accountId, 
+                name: aBoy.name,
+                summonerName: aBoy.summonerName, 
 
-            gameId: matchWithDets.gameId,
-            ...matchWithDets.stats
-        }))
-    }).flatten();
+                gameId: matchWithDets.gameId,
+                // ...matchWithDets.stats
+            }))
+        })
+    ).map(entry => `${values(entry).join(',')}\n`);
 };
 
 const run = async () => {
     const theBoysWithAccountDets = await getAccountDets();
     const theBoysWithMatches = await getMatchesForSummoner(theBoysWithAccountDets);
-    const theBoysWithDetsMatches = await getDetailsForMatches(theBoysWithMatches);
+    // const theBoysWithDetsMatches = await getDetailsForMatches(theBoysWithMatches);
 
-    console.log(theBoysWithDetsMatches[0]);
+    const rows = flattenIntoRows(theBoysWithMatches);
+    rows.forEach(row => fs.appendFileSync('./data.csv', row));
+    // console.log(theBoysWithDetsMatches[0]);
 };
 
 run();
