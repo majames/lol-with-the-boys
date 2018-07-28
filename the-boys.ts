@@ -3,6 +3,12 @@ import fs from 'fs';
 import flatten from 'lodash.flatten';
 import values from 'lodash.values';
 
+let requestCount = 0;
+axios.interceptors.request.use((config) => { 
+    console.log('request', requestCount++); 
+    return new Promise(resolve => setTimeout(() => resolve(config), Math.random() * 25000));
+});
+
 const apiKey = fs.readFileSync('./.api-key').toString();
 
 const theBoys = [
@@ -56,6 +62,8 @@ interface BoyWithMatches {
     accountId: number;
     name: string;
     summonerName: string;
+    offset: number;
+    totalGames: number;
     matches: Match[];
 }
 
@@ -97,7 +105,7 @@ const getAccountDets = async (): Promise<BoyWithAccountDets[]> => {
     return responses.map((resp, i) => ({ ...resp.data, ...theBoys[i] }));
 };
 
-const getMatchesForSummoner = async (theBoysWithAccountDets: BoyWithAccountDets[]): Promise<BoyWithMatches[]> => {
+const getInitialMatchesForSummoner = async (theBoysWithAccountDets: BoyWithAccountDets[]): Promise<BoyWithMatches[]> => {
     const matchesEndPoint = 'https://oc1.api.riotgames.com/lol/match/v3/matchlists/by-account/';
 
     const requests = theBoysWithAccountDets.map(aBoy => {
@@ -108,10 +116,55 @@ const getMatchesForSummoner = async (theBoysWithAccountDets: BoyWithAccountDets[
     });
 
     const responses = await Promise.all(requests);
-    return responses
-        .map(resp => resp.data.matches)
-        .map(matches => matches.map((match: Match) => ({ gameId: match.gameId })))
-        .map((matches, i) => ({ ...theBoysWithAccountDets[i], matches: matches }));
+    const boysWithInitialMatches = responses
+        .map(resp => resp.data)
+        .map(({ matches, totalGames, endIndex }, i) => {
+            return {
+                ...theBoysWithAccountDets[i],
+                offset: endIndex,
+                totalGames,
+                matches: matches.map((match: Match) => ({ gameId: match.gameId })),
+            };
+        });
+    
+    return new Promise<BoyWithMatches[]>(resolve => {
+        setTimeout(() => resolve(boysWithInitialMatches), 10000);
+    });
+};
+
+const getSubsequentMatchesForSummoner = async (theBoysWithSomeMatches: BoyWithMatches[]): Promise<BoyWithMatches[]> => {
+    const matchesEndPoint = 'https://oc1.api.riotgames.com/lol/match/v3/matchlists/by-account/';
+
+    console.log(theBoysWithSomeMatches.map(boy => ({ offset: boy.offset, totalGames: boy.totalGames})));
+    if (theBoysWithSomeMatches.every(boy => boy.offset >= boy.totalGames)) {
+        return Promise.resolve(theBoysWithSomeMatches);
+    }
+
+    const requests = theBoysWithSomeMatches.map(aBoy => {
+        return axios.get(
+            `${matchesEndPoint}${aBoy.accountId}?beginIndex=${aBoy.offset}`, 
+            { headers: { 'X-Riot-Token': apiKey }}
+        );
+    });
+
+    const responses = await Promise.all(requests);
+    const boysWithAdditionalMatches = responses
+        .map(resp => resp.data)
+        .map(({ matches, totalGames, endIndex }, i) => {
+            return {
+                ...theBoysWithSomeMatches[i],
+                offset: endIndex,
+                totalGames,
+                matches: [
+                    ...theBoysWithSomeMatches[i].matches,
+                    ...matches.map((match: Match) => ({ gameId: match.gameId }))
+                ]
+            };
+        });
+    
+    return new Promise<BoyWithMatches[]>(resolve => {
+        setTimeout(() => resolve(getSubsequentMatchesForSummoner(boysWithAdditionalMatches)), 10000);
+    });
 };
 
 const getDetailsForMatchesAux = async (aBoyWithMatches: BoyWithMatches) => {
@@ -161,16 +214,17 @@ const flattenIntoRows = (theBoysWithDetsMatches: BoyWithMatches[]) => {
                 // ...matchWithDets.stats
             }))
         })
-    ).map(entry => `${values(entry).join(',')}\n`);
+    ).map(entry => `${values(entry).join(',')}`);
 };
 
 const run = async () => {
     const theBoysWithAccountDets = await getAccountDets();
-    const theBoysWithMatches = await getMatchesForSummoner(theBoysWithAccountDets);
+    const theBoysWithSomeMatches = await getInitialMatchesForSummoner(theBoysWithAccountDets);
+    const theBoysWithMatches = await getSubsequentMatchesForSummoner(theBoysWithSomeMatches);
     // const theBoysWithDetsMatches = await getDetailsForMatches(theBoysWithMatches);
 
     const rows = flattenIntoRows(theBoysWithMatches);
-    rows.forEach(row => fs.appendFileSync('./data.csv', row));
+    fs.writeFileSync('./data.csv', rows.join('\n'));
     // console.log(theBoysWithDetsMatches[0]);
 };
 
