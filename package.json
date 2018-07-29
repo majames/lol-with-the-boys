@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "ts-node ./the-boys.ts"
+    "start-the-boys": "ts-node ./src/the-boys.ts",
+    "fill-in-dets": "ts-node ./src/fill-in-dets.ts"
   },
   "author": "",
   "license": "ISC",
