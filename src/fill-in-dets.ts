@@ -1,6 +1,5 @@
 import axios from 'axios';
 import fs from 'fs';
-import values from 'lodash.values';
 
 async function asyncForEach<T>(array: T[], callback: (val: T, index: number, arr: T[]) => Promise<void>) {
     for (let index = 0; index < array.length; index++) {
@@ -106,7 +105,7 @@ const retrieveDetailsForMatches = async () => {
     // get details for matches
     const accountIdToMatchesDets = await getDetailsForMatches(accountIdToMatches);
 
-    // massage data into CSVEntry
+    // massage data into CSVEntry JSON object
     const boysWithDetsMatches: CSVEntry[] = [];
     Array.from(accountIdToMatchesDets.keys()).forEach(accountId => {
         const { name, summonerName } = accountIdToNames.get(accountId) as {name: string; summonerName: string};
@@ -122,11 +121,37 @@ const retrieveDetailsForMatches = async () => {
         });
     });
 
+    // take first entry as source of truth as to what the column titles are
+    const groupCols = Object.keys(boysWithDetsMatches[0]).reduce((m, colTitle) => {
+        m.set(colTitle as keyof CSVEntry, []);
+        return m;
+    }, new Map<keyof CSVEntry, any>());
+
+    // group values into columns, undefined is added to a col with the value is missing
+    const colTitles = Array.from(groupCols.keys());
+    boysWithDetsMatches.forEach(match => {
+        colTitles.forEach(title => {
+            groupCols.get(title).push(match[title]);
+        });
+    });
+
+    for (const vals of groupCols.values()) {
+        console.log(vals.length);
+    }
+
+    // convert into string rows
+    const numRows = groupCols.values().next().value.length;
+    const rows = [];
+    for (let i = 0; i < numRows; i++) {
+        const row = colTitles.map(title => groupCols.get(title)[i]);
+        rows.push(row.join(','));
+    }
+
     fs.writeFileSync(
         './enriched-data.csv', 
         [
-            `${Object.keys(boysWithDetsMatches[0]).join(',')}\n`, // heading row
-            boysWithDetsMatches.map(match => `${values(match).join(',')}\n`) // data
+            Object.keys(boysWithDetsMatches[0]).join(','), // heading row
+            rows.join('\n')
         ].join('\n')
     );
 };
