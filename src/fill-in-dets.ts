@@ -1,6 +1,8 @@
 import axios from 'axios';
 import fs from 'fs';
 
+const keysOfInterest = 'accountId,name,summonerName,participantId,win,item0,item1,item2,item3,item4,item5,item6,kills,deaths,assists,largestKillingSpree,largestMultiKill,killingSprees,longestTimeSpentLiving,doubleKills,tripleKills,quadraKills,pentaKills,unrealKills,totalDamageDealt,magicDamageDealt,physicalDamageDealt,trueDamageDealt,largestCriticalStrike,totalDamageDealtToChampions,magicDamageDealtToChampions,physicalDamageDealtToChampions,trueDamageDealtToChampions,totalHeal,totalUnitsHealed,damageSelfMitigated,damageDealtToObjectives,damageDealtToTurrets,visionScore,timeCCingOthers,totalDamageTaken,magicalDamageTaken,physicalDamageTaken,trueDamageTaken,goldEarned,goldSpent,turretKills,inhibitorKills,totalMinionsKilled,neutralMinionsKilled,neutralMinionsKilledTeamJungle,neutralMinionsKilledEnemyJungle,totalTimeCrowdControlDealt,champLevel,visionWardsBoughtInGame,sightWardsBoughtInGame,wardsPlaced,wardsKilled,firstBloodKill,firstBloodAssist,firstTowerKill,firstTowerAssist,firstInhibitorKill,firstInhibitorAssist,combatPlayerScore,objectivePlayerScore,totalPlayerScore,totalScoreRank,playerScore0,playerScore1,playerScore2,playerScore3,playerScore4,playerScore5,playerScore6,playerScore7,playerScore8,playerScore9,perk0,perk0Var1,perk0Var2,perk0Var3,perk1,perk1Var1,perk1Var2,perk1Var3,perk2,perk2Var1,perk2Var2,perk2Var3,perk3,perk3Var1,perk3Var2,perk3Var3,perk4,perk4Var1,perk4Var2,perk4Var3,perk5,perk5Var1,perk5Var2,perk5Var3,perkPrimaryStyle,perkSubStyle,gameId'.split(',');
+
 async function asyncForEach<T>(array: T[], callback: (val: T, index: number, arr: T[]) => Promise<void>) {
     for (let index = 0; index < array.length; index++) {
       await callback(array[index], index, array)
@@ -12,7 +14,7 @@ const apiKey = fs.readFileSync('./.api-key').toString();
 let requestCount = 0;
 axios.interceptors.request.use((config) => { 
     console.log(`request: ${requestCount++}`);
-    return new Promise(resolve => setTimeout(() => resolve(config), 2000));
+    return new Promise(resolve => setTimeout(() => resolve(config), 1400));
 });
 
 interface Participant {
@@ -40,21 +42,17 @@ interface CSVEntry extends StatsForGame {
 const getDetailsForMatch = async (accountId: number, gameId: number): Promise<StatsForGame> => {
     const matchesEndPoint = 'https://oc1.api.riotgames.com/lol/match/v3/matches/';
 
-    console.log(`${matchesEndPoint}${gameId}`);
     const response = await axios.get(
         `${matchesEndPoint}${gameId}`, 
         { headers: { 'X-Riot-Token': apiKey }}
     );
 
     const { participantIdentities, participants } = response.data;
-    // console.log(gameId);
-    // console.log(participantIdentities.map((p: any) => p.player.currentAccountId), accountId);
 
     const participantId = participantIdentities.find(
         (participant: Participant) => participant.player.currentAccountId === accountId
     ).participantId;
 
-    // console.log(participants[participantId]);
     const stats: StatsForGame = participants[participantId - 1].stats;
     return { ...stats, gameId };
 };
@@ -66,7 +64,7 @@ const getDetailsForMatches = async (accountIdToMatches: Map<number, number[]>): 
     await asyncForEach(accountIds, async accountId => {
         const matchIds = accountIdToMatches.get(accountId) as number[];
 
-        await asyncForEach(matchIds.slice(0, 2), async gameId => {
+        await asyncForEach(matchIds, async gameId => {
             const matchWithDets = await getDetailsForMatch(accountId, gameId);
 
             if (accountIdToDetsMatches.has(accountId) === false) {
@@ -82,7 +80,7 @@ const getDetailsForMatches = async (accountIdToMatches: Map<number, number[]>): 
 };
 
 const retrieveDetailsForMatches = async () => {
-    const lines = fs.readFileSync('./data.csv').toString().split('\n');
+    const lines = fs.readFileSync('./data-1000.csv').toString().split('\n');
 
     const accountIdToMatches = new Map<number, number[]>();
     const accountIdToNames = new Map<number, {name: string, summonerName: string}>();
@@ -121,23 +119,18 @@ const retrieveDetailsForMatches = async () => {
         });
     });
 
-    // take first entry as source of truth as to what the column titles are
-    const groupCols = Object.keys(boysWithDetsMatches[0]).reduce((m, colTitle) => {
+    // group values into columns, undefined is added to a col with the value is missing
+    const groupCols = keysOfInterest.reduce((m, colTitle) => {
         m.set(colTitle as keyof CSVEntry, []);
         return m;
     }, new Map<keyof CSVEntry, any>());
 
-    // group values into columns, undefined is added to a col with the value is missing
     const colTitles = Array.from(groupCols.keys());
     boysWithDetsMatches.forEach(match => {
         colTitles.forEach(title => {
             groupCols.get(title).push(match[title]);
         });
     });
-
-    for (const vals of groupCols.values()) {
-        console.log(vals.length);
-    }
 
     // convert into string rows
     const numRows = groupCols.values().next().value.length;
@@ -148,7 +141,7 @@ const retrieveDetailsForMatches = async () => {
     }
 
     fs.writeFileSync(
-        './enriched-data.csv', 
+        './enriched-data-1000.csv', 
         [
             Object.keys(boysWithDetsMatches[0]).join(','), // heading row
             rows.join('\n')
