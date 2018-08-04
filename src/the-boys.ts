@@ -8,7 +8,7 @@ const apiKey = fs.readFileSync('./.api-key').toString();
 let requestCount = 0;
 axios.interceptors.request.use((config) => { 
     console.log('request', requestCount++); 
-    return new Promise(resolve => setTimeout(() => resolve(config), Math.random() * 15000));
+    return new Promise(resolve => setTimeout(() => resolve(config), Math.random() * 10000));
 });
 
 const theBoys = [
@@ -55,6 +55,8 @@ interface BoyWithAccountDets {
 
 interface Match {
     gameId: number;
+    timestamp: number;
+    season: number;
 }
 
 interface BoyWithMatches {
@@ -64,13 +66,6 @@ interface BoyWithMatches {
     offset: number;
     totalGames: number;
     matches: Match[];
-}
-
-interface Participant {
-    participantId: number;
-    player: {
-        accountId: number;
-    }
 }
 
 const getAccountDets = async (): Promise<BoyWithAccountDets[]> => {
@@ -105,13 +100,11 @@ const getInitialMatchesForSummoner = async (theBoysWithAccountDets: BoyWithAccou
                 ...theBoysWithAccountDets[i],
                 offset: endIndex,
                 totalGames,
-                matches: matches.map((match: Match) => ({ gameId: match.gameId })),
+                matches: matches.map((match: Match) => ({ gameId: match.gameId, season: match.season, timestamp: match.timestamp })),
             };
         });
     
-    return new Promise<BoyWithMatches[]>(resolve => {
-        setTimeout(() => resolve(boysWithInitialMatches), 10000);
-    });
+    return boysWithInitialMatches;
 };
 
 const getSubsequentMatchesForSummoner = async (theBoysWithSomeMatches: BoyWithMatches[]): Promise<BoyWithMatches[]> => {
@@ -139,14 +132,13 @@ const getSubsequentMatchesForSummoner = async (theBoysWithSomeMatches: BoyWithMa
                 totalGames,
                 matches: [
                     ...theBoysWithSomeMatches[i].matches,
-                    ...matches.map((match: Match) => ({ gameId: match.gameId }))
+                    ...matches.map((match: Match) => ({ gameId: match.gameId, season: match.season, timestamp: match.timestamp
+                     }))
                 ]
             };
         });
     
-    return new Promise<BoyWithMatches[]>(resolve => {
-        setTimeout(() => resolve(getSubsequentMatchesForSummoner(boysWithAdditionalMatches)), 10000);
-    });
+    return getSubsequentMatchesForSummoner(boysWithAdditionalMatches);
 };
 
 const flattenIntoRows = (theBoysWithDetsMatches: BoyWithMatches[]) => {
@@ -157,6 +149,8 @@ const flattenIntoRows = (theBoysWithDetsMatches: BoyWithMatches[]) => {
                 name: aBoy.name,
                 summonerName: aBoy.summonerName, 
                 gameId: matchWithDets.gameId,
+                timestamp: matchWithDets.timestamp,
+                season: matchWithDets.season
             }))
         })
     ).map(entry => `${values(entry).join(',')}`);
@@ -168,7 +162,7 @@ const retrieveMatches = async () => {
     const theBoysWithMatches = await getSubsequentMatchesForSummoner(theBoysWithSomeMatches);
 
     const rows = flattenIntoRows(theBoysWithMatches);
-    fs.writeFileSync('./data.csv', rows.join('\n'));
+    fs.writeFileSync('./data-2.csv', rows.join('\n'));
 };
 
 retrieveMatches();
